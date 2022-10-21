@@ -76,6 +76,8 @@ func getClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
 # Functions
 ###################################################
 
+
+# ACCESS CONTROL WILL BE MODIFIED, ANYONE SHOULD BE ABLE TO CREATE A PLAYLIST
 @external
 func deploy_rental_contract{
     syscall_ptr: felt*,

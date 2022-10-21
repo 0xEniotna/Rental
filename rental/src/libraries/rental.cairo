@@ -2,17 +2,16 @@
 
 %lang starknet
 
-from starkware.cairo.common.cairo_builtins import HashBuiltin
-from starkware.starknet.common.syscalls import get_caller_address, get_contract_address
+from starkware.starknet.common.syscalls import get_caller_address, get_contract_address, get_tx_info
 from starkware.cairo.common.uint256 import Uint256, uint256_check
 from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin
-from starkware.starknet.common.syscalls import get_tx_info
+from starkware.cairo.common.math import assert_not_equal, assert_not_zero
 
 from utils.library import DEFAULT_ADMIN_ROLE, DEFAULT_RENTER_ROLE, IERC721_RECEIVER_ID, IACCESSCONTROL_ID
+
 from openzeppelin.access.accesscontrol.library import AccessControl
 from openzeppelin.token.erc721.IERC721 import IERC721
 from openzeppelin.introspection.erc165.library import ERC165
-from openzeppelin.introspection.erc165.library import 
 from openzeppelin.account.library import Account, AccountCallArray
 #
 # Vars
@@ -50,6 +49,9 @@ func constructor{syscall_ptr : felt*, pedersen_ptr : HashBuiltin*, range_check_p
 
     AccessControl.initializer();
     AccessControl._grant_role(ADMIN_ROLE, owner);
+
+    is_listed.write(0);
+    is_rented.write(0);
     return()
 }
 
@@ -62,13 +64,25 @@ struct Nft {
     nft_id: felt
 }
 
-struct Subscription {
-    sub_address : felt,
-    duration : felt
+struct Listing {
+    price: felt
 }
+
 
 @storage_var
 func nft_list() -> (nfts : Nft*, nft_len : felt) {
+}
+
+@storage_var
+func rental_price() -> (price : felt) {
+}
+
+@storage_var
+func is_listed() -> (ans : felt) {
+}
+
+@storage_var
+func is_rented() -> (ans : felt) {
 }
 
 
@@ -95,17 +109,96 @@ func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_che
 func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     nft_id : Uint256, nft_address : felt)
 ) {
+    AccessControl.assert_only_role(ADMIN_ROLE);
     let (this_address) = get_contract_address();
-    let (caller :felt) = get_caller_address()
-    AccessControl.assert_only_role(ADMIN_ROLE)
-    let (token_owner :felt) = IERC721.owner_of(contract_address=nft_address, tokenId = nft_id)
+    let (caller :felt) = get_caller_address();
+    let (token_owner :felt) = IERC721.owner_of(contract_address=nft_address, tokenId = nft_id);
     with_attr error_message("ERC721: caller is not token owner") {
         assert caller =  token_owner
     }
     IERC721.transferFrom(contract_address=nft_address, caller, this_address, nft_id)  
-    TokenDeposit.emit(current_balance=res, amount=amount);  
+    TokenDeposit.emit(nft_address=nft_address, nft_id=nft_id);  
     return()
 }
+
+
+### should check approval
+@external
+func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    nft_id : Uint256, nft_address : felt)
+) {
+    AccessControl.assert_only_role(ADMIN_ROLE);
+    let (this_address) = get_contract_address();
+    let (caller :felt) = get_caller_address();
+    let (token_owner :felt) = IERC721.owner_of(contract_address=nft_address, tokenId = nft_id);
+    with_attr error_message("ERC721: caller is not token owner") {
+        assert this_address =  token_owner
+    }
+    IERC721.transferFrom(contract_address=nft_address, this_address, caller, nft_id)  
+    TokenWithdrawal.emit(nft_address=nft_address, nft_id=nft_id);   
+    return()
+}
+
+@external
+func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    price : felt
+) {
+    AccessControl.assert_only_role(ADMIN_ROLE);
+    let (listed : felt) = is_listed.read()
+    let (rented : felt) = is_rented.read()
+    with_attr error_message("Already listed") {
+        assert_not_equal(listed, 1);
+    }
+    with_attr error_message("Already rented") {
+        assert_not_equal(rented, 1);
+    }
+    _setRentalPrice(price);
+    is_listed.write(1);
+    return()
+}
+
+@external
+func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+) {
+    AccessControl.assert_only_role(ADMIN_ROLE);
+    let (listed : felt) = is_listed.read()
+    let (rented : felt) = is_rented.read()
+    with_attr error_message("Not listed") {
+        assert_not_zero(listed);
+    }
+    with_attr error_message("Not rented") {
+        assert_not_zero(rented);
+    }
+    is_listed.write(0);
+    _setRentalPrice(0);
+    return()
+}
+
+@external
+func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+) {
+    AccessControl.assert_only_role(ADMIN_ROLE);
+    let (listed : felt) = is_listed.read()
+    let (rented : felt) = is_rented.read()
+    with_attr error_message("Not listed") {
+        assert_not_zero(listed);
+    }
+    with_attr error_message("Not rented") {
+        assert_not_zero(rented);
+    }
+    is_listed.write(0);
+    _setRentalPrice(0);
+    return()
+}
+
+func _setRentalPrice{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_price : felt
+) {
+    rental_price.write(new_price);
+    return()
+}
+
+
 
 @external
 func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
