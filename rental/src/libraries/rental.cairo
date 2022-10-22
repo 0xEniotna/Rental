@@ -12,7 +12,7 @@ from utils.library import DEFAULT_ADMIN_ROLE, DEFAULT_RENTER_ROLE, IERC721_RECEI
 from openzeppelin.access.accesscontrol.library import AccessControl
 from openzeppelin.token.erc721.IERC721 import IERC721
 from openzeppelin.introspection.erc165.library import ERC165
-from openzeppelin.account.library import Account, AccountCallArray
+from openzeppelin.account.library import Account
 #
 # Vars
 # 
@@ -42,13 +42,15 @@ func NewSubscription(sub_address : felt, duration : felt) {
 
 @constructor
 func constructor{syscall_ptr : felt*, pedersen_ptr : HashBuiltin*, range_check_ptr}(
-    owner : felt
+    owner : felt, public_key: felt
 ) {
     ERC165.register_interface(IERC721_RECEIVER_ID);
     ERC165.register_interface(IACCESSCONTROL_ID);
 
     AccessControl.initializer();
     AccessControl._grant_role(ADMIN_ROLE, owner);
+
+    Account.initializer(public_key);
 
     is_listed.write(0);
     is_rented.write(0);
@@ -95,12 +97,77 @@ func is_rented() -> (ans : felt) {
 func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     interfaceId: felt
 ) -> (success: felt) {
-    return ERC165.supports_interface(interfaceId);
+    return Account.supports_interface(interfaceId);
+}
+
+@view
+func getPublicKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    publicKey: felt
+) {
+    let (publicKey: felt) = Account.get_public_key();
+    return (publicKey=publicKey);
+}
+
+###################################################
+# Setters
+###################################################
+
+@external
+func setPublicKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    newPublicKey: felt
+) {
+    Account.set_public_key(newPublicKey);
+    return ();
 }
 
 ###################################################
 # Functions
 ###################################################
+
+### ACCOUNT ###
+
+@view
+func isValidSignature{
+    syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
+}(hash: felt, signature_len: felt, signature: felt*) -> (isValid: felt) {
+    let (isValid: felt) = Account.is_valid_signature(hash, signature_len, signature);
+    return (isValid=isValid);
+}
+
+@external
+func __validate__{
+    syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
+}(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
+    let (tx_info) = get_tx_info();
+    Account.is_valid_signature(tx_info.transaction_hash, tx_info.signature_len, tx_info.signature);
+    return ();
+}
+
+@external
+func __validate_declare__{
+    syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
+}(class_hash: felt) {
+    let (tx_info) = get_tx_info();
+    Account.is_valid_signature(tx_info.transaction_hash, tx_info.signature_len, tx_info.signature);
+    return ();
+}
+
+@external
+func __execute__{
+    syscall_ptr: felt*,
+    pedersen_ptr: HashBuiltin*,
+    ecdsa_ptr: SignatureBuiltin*,
+    bitwise_ptr: BitwiseBuiltin*,
+    range_check_ptr,
+}(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) -> (
+    response_len: felt, response: felt*
+) {
+    let (response_len, response) = Account.execute(
+        call_array_len, call_array, calldata_len, calldata
+    );
+    return (response_len, response);
+}
+
 
 #### ATTENTION ####
 # IERC721 requires Uint256. A good conversion func has to be used before calling that function.
