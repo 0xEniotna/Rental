@@ -2,49 +2,46 @@
 
 %lang starknet
 
-from starkware.starknet.common.syscalls import get_caller_address, get_contract_address,get_tx_info, deploy
+from starkware.starknet.common.syscalls import (
+    get_caller_address,
+    get_contract_address,
+    get_tx_info,
+    deploy,
+)
 from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin
 from starkware.cairo.common.alloc import alloc
 from starkware.cairo.common.bool import FALSE
 
-
-
-
 from openzeppelin.access.ownable.library import Ownable
 from openzeppelin.introspection.erc165.library import ERC165
 from openzeppelin.account.library import Account, AccountCallArray
-#
-# Vars
-# 
 
-
-
-###################################################
-# Events
-###################################################
+// /////////////////////////////////////////////////
+// Events
+// /////////////////////////////////////////////////
 
 @event
 func rental_contract_deployed(contract_address: felt, admin_address: felt) {
 }
 
-###################################################
-# constructor / initializer
-###################################################
+// /////////////////////////////////////////////////
+// constructor / initializer
+// /////////////////////////////////////////////////
 
 @constructor
-func constructor{syscall_ptr : felt*, pedersen_ptr : HashBuiltin*, range_check_ptr}(
-    owner : felt, rental_class_hash : felt
+func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    owner: felt, rental_class_hash: felt
 ) {
     Ownable.initializer(owner);
 
     rental_class_hash.write(value=ownable_class_hash_);
 
-    return()
+    return ();
 }
 
-###################################################
-# storage & structs
-###################################################
+// /////////////////////////////////////////////////
+// storage & structs
+// /////////////////////////////////////////////////
 
 @storage_var
 func rental_class_hash() -> (value: felt) {
@@ -54,10 +51,9 @@ func rental_class_hash() -> (value: felt) {
 func salt() -> (value: felt) {
 }
 
-
-###################################################
-# Getters
-###################################################
+// /////////////////////////////////////////////////
+// Getters
+// /////////////////////////////////////////////////
 
 @view
 func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
@@ -67,23 +63,21 @@ func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_che
 }
 
 @view
-func getClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-) -> (success: felt) {
+func getClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    success: felt
+) {
     return rental_class_hash.read();
 }
 
-###################################################
-# Functions
-###################################################
+// /////////////////////////////////////////////////
+// Functions
+// /////////////////////////////////////////////////
 
-
-# ACCESS CONTROL WILL BE MODIFIED, ANYONE SHOULD BE ABLE TO CREATE A PLAYLIST
+// ACCESS CONTROL WILL BE MODIFIED, ANYONE SHOULD BE ABLE TO CREATE A PLAYLIST
 @external
-func deploy_rental_contract{
-    syscall_ptr: felt*,
-    pedersen_ptr: HashBuiltin*,
-    range_check_ptr,
-}(admin_address: felt) {
+func deploy_rental_contract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    admin_address: felt
+) {
     Ownable.assert_only_owner();
     let (current_salt) = salt.read();
     let (class_hash) = rental_class_hash.read();
@@ -96,9 +90,6 @@ func deploy_rental_contract{
     );
     salt.write(value=current_salt + 1);
 
-    rental_contract_deployed.emit(
-        contract_address=contract_address,
-        admin_address=admin_address
-    );
+    rental_contract_deployed.emit(contract_address=contract_address, admin_address=admin_address);
     return ();
 }
