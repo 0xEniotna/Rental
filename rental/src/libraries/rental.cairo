@@ -18,9 +18,9 @@ from utils.library import (
 
 from openzeppelin.access.accesscontrol.library import AccessControl
 from openzeppelin.token.erc721.IERC721 import IERC721
+from openzeppelin.token.erc20.IERC20 import IERC20
 from openzeppelin.introspection.erc165.library import ERC165
 from openzeppelin.account.library import Account, AccountCallArray, Call, Account_public_key
-
 // /////
 // Vars
 // /////
@@ -61,7 +61,7 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
     AccessControl._grant_role(ADMIN_ROLE, owner);
 
     Account.initializer(public_key);
-
+    renter_account.write(public_key);
     is_listed.write(0);
     is_rented.write(0);
     return ();
@@ -94,7 +94,7 @@ func nft_address() -> (nft_address: felt) {
 }
 
 @storage_var
-func rental_price() -> (price: felt) {
+func rental_price() -> (price: Uint256) {
 }
 
 @storage_var
@@ -107,6 +107,10 @@ func is_rented() -> (ans: felt) {
 
 @storage_var
 func renter_account() -> (public_key: felt) {
+}
+
+@storage_var
+func whitelisted_token() -> (token_address: felt) {
 }
 
 // /////////////////////////////////////////////////
@@ -128,27 +132,28 @@ func getPublicKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     return (publicKey=publicKey);
 }
 
-// @view
-// func isValidSignature{
-//     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
-// }(hash: felt, signature_len: felt, signature: felt*) -> (isValid: felt) {
-//     let (isValid: felt) = Account.is_valid_signature(hash, signature_len, signature);
-//     return (isValid=isValid);
-// }
+@view
+func getWhitelistedToken{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    token_address : felt
+) {
+    let (token_addr: felt) = whitelisted_token.read();
+    return (token_address=token_addr);
+}
 
 @view
 func isValidSignature{
     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
 }(hash: felt, signature_len: felt, signature: felt*) -> (isValid: felt) {
-    let (public_key: felt) = Account_public_key.read();
+    alloc_locals;
+    let (local public_key: felt)  = Account_public_key.read();
     let (isValid: felt) = custom_is_valid_signature(public_key, hash, signature_len, signature);
-    let (public_key_renter: felt) = renter_account.read();
+    let (local public_key_renter: felt) = renter_account.read();
     let (isValidRenter: felt) = custom_is_valid_signature(
         public_key_renter, hash, signature_len, signature
     );
     // If sig is either admin or renter Then OK
-    let (res: felt) = (1 - isValid) * (1 - isValidRenter);
-    let (ans: felt) = FALSE;
+    local res = (1 - isValid) * (1 - isValidRenter);
+    local ans = FALSE;
     if (res == 0) {
         ans = TRUE;
     }
@@ -203,24 +208,46 @@ func custom_is_valid_signature{
 //     data_len: felt
 // }
 
-@external
-func __validate__{
+func _validate_internal{
     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
 }(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
-    let (nft_address) = nft_address.read();
+    alloc_locals;
+
     if (call_array_len == 0) {
         let (tx_info) = get_tx_info();
         Account.is_valid_signature(
             tx_info.transaction_hash, tx_info.signature_len, tx_info.signature
         );
+        tempvar syscall_ptr : felt* = syscall_ptr;
+        tempvar pedersen_ptr : HashBuiltin* = pedersen_ptr;
+        tempvar range_check_ptr = range_check_ptr;
+
         return ();
     }
     if (call_array[0].selector != APPROVE_SELECTOR) {
+        let (local nft_addr : felt) = nft_address.read();
         with_attr error_message("Can't interact with nft contract") {
-            assert_not_equal(call_array[0].to, nft_address);
+            assert_not_equal(call_array[0].to, nft_addr);
         }
+        tempvar syscall_ptr : felt* = syscall_ptr;
+        tempvar pedersen_ptr : HashBuiltin* = pedersen_ptr;
+        tempvar range_check_ptr = range_check_ptr;
+
+    } else {
+        tempvar syscall_ptr : felt* = syscall_ptr;
+        tempvar pedersen_ptr : HashBuiltin* = pedersen_ptr;
+        tempvar range_check_ptr = range_check_ptr;
     }
-    __validate__(call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata);
+
+    _validate_internal(call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata);
+    return ();
+}
+
+@external
+func __validate__{
+    syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
+}(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
+    _validate_internal(call_array_len, call_array, calldata_len, calldata);
     return ();
 }
 
@@ -249,13 +276,11 @@ func __execute__{
     return (response_len, response);
 }
 
-// // ATTENTION ////
-// IERC721 requires Uint256. A good conversion func has to be used before calling that function.
-
 @external
 func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     nft_id: Uint256, nft_address: felt
 ) {
+    uint256_check(nft_id);
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
@@ -263,7 +288,7 @@ func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}
     with_attr error_message("ERC721: caller is not token owner") {
         assert caller = token_owner;
     }
-    IERC721.transferFrom(contract_address=nft_address, caller, this_address, nft_id);
+    IERC721.transferFrom(contract_address=nft_address, from_=caller, to=this_address, tokenId=nft_id);
     TokenDeposit.emit(nft_address=nft_address, nft_id=nft_id);
     return ();
 }
@@ -273,6 +298,7 @@ func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}
 func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     nft_id: Uint256, nft_address: felt
 ) {
+    uint256_check(nft_id);
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
@@ -280,26 +306,27 @@ func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
     with_attr error_message("ERC721: caller is not token owner") {
         assert this_address = token_owner;
     }
-    IERC721.transferFrom(contract_address=nft_address, this_address, caller, nft_id);
+    IERC721.transferFrom(contract_address=nft_address, from_=this_address, to=caller, tokenId=nft_id);
     TokenWithdrawal.emit(nft_address=nft_address, nft_id=nft_id);
     return ();
 }
 
 @external
 func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    price: felt
+    price: Uint256
 ) {
+    uint256_check(price);
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (listed: felt) = is_listed.read();
     let (rented: felt) = is_rented.read();
     with_attr error_message("Already listed") {
         assert_not_equal(listed, 1);
     }
-    with_attr error_message("Already rented") {
+    with_attr error_message("Asset rented") {
         assert_not_equal(rented, 1);
     }
     _setRentalPrice(price);
-    is_listed.write(1);
+    is_listed.write(TRUE);
     return ();
 }
 
@@ -309,34 +336,75 @@ func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_
     let (listed: felt) = is_listed.read();
     let (rented: felt) = is_rented.read();
     with_attr error_message("Not listed") {
+        //check that it is listed
         assert_not_zero(listed);
     }
-    with_attr error_message("Not rented") {
-        assert_not_zero(rented);
+    with_attr error_message("Asset rented") {
+        //check that it is not rented
+        assert_not_equal(rented, 1);
     }
-    is_listed.write(0);
-    _setRentalPrice(0);
+    is_listed.write(FALSE);
+    _setRentalPrice(Uint256(0,0));
+    return ();
+}
+
+//prompt pubkey a la mano, not good but it is for a test purpose
+@external
+func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(public_key: felt) {
+    let (listed: felt) = is_listed.read();
+    let (rented: felt) = is_rented.read();
+    with_attr error_message("Not listed") {
+        //check that it is listed
+        assert_not_zero(listed);
+    }
+    with_attr error_message("Asset rented") {
+        //check that it is not rented
+        assert_not_equal(rented, 1);
+    }
+    let (this_address: felt) = get_contract_address();
+    let (caller: felt) = get_caller_address();
+    let (price_to_pay : Uint256) = rental_price.read();
+    let (token_addr : felt) = whitelisted_token.read();
+
+    IERC20.transferFrom(contract_address= token_addr,sender=caller, recipient=this_address, amount=price_to_pay);
+    is_listed.write(FALSE);
+    is_rented.write(TRUE);
+    renter_account.write(public_key);
     return ();
 }
 
 @external
-func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
+func cancelRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
     AccessControl.assert_only_role(ADMIN_ROLE);
-    let (listed: felt) = is_listed.read();
+
     let (rented: felt) = is_rented.read();
-    with_attr error_message("Not listed") {
-        assert_not_zero(listed);
-    }
-    with_attr error_message("Not rented") {
+
+    with_attr error_message("Asset not rented") {
+        //check that it is not rented
         assert_not_zero(rented);
     }
-    is_listed.write(0);
-    _setRentalPrice(0);
+    let (this_pubKey: felt) = getPublicKey();
+    is_listed.write(FALSE);
+    is_rented.write(FALSE);
+    renter_account.write(this_pubKey);
+    return ();
+}
+
+@external
+func withdrawFunds{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
+    AccessControl.assert_only_role(ADMIN_ROLE);
+    let (this_address: felt) = get_contract_address();
+    let (caller: felt) = get_caller_address();
+    let (token_addr : felt) = whitelisted_token.read();
+    //fetch balance
+    let (balance : Uint256) = IERC20.balanceOf(contract_address=token_addr, account=this_address);
+    //rugpull
+    IERC20.transferFrom(contract_address= token_addr,sender=this_address, recipient=caller, amount=balance);
     return ();
 }
 
 func _setRentalPrice{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    new_price: felt
+    new_price: Uint256
 ) {
     rental_price.write(new_price);
     return ();

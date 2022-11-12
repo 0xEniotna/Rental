@@ -30,11 +30,11 @@ func rental_contract_deployed(contract_address: felt, admin_address: felt) {
 
 @constructor
 func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    owner: felt, rental_class_hash: felt
+    _owner: felt, _rental_class_hash: felt
 ) {
-    Ownable.initializer(owner);
+    Ownable.initializer(_owner);
 
-    rental_class_hash.write(value=ownable_class_hash_);
+    rental_class_hash.write(value=_rental_class_hash);
 
     return ();
 }
@@ -64,7 +64,7 @@ func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_che
 
 @view
 func getClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
-    success: felt
+    value: felt
 ) {
     return rental_class_hash.read();
 }
