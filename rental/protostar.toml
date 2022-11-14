@@ -1,12 +1,11 @@
 [project]
 protostar-version = "0.7.0"
 lib-path = "lib"
+cairo-path = ["./lib/cairo_contracts/src"]
 
 [contracts]
 rental = ["src/libraries/rental.cairo"]
 factory = ["src/libraries/rental_factory.cairo"]
 nft = ["src/libraries/nft_contract.cairo"]
-
-[build]
-cairo-path = ["./lib/cairo_contracts/src"]
+token = ["src/libraries/token.cairo"]
 
