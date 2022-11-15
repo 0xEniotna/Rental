@@ -55,11 +55,13 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 
     AccessControl.initializer();
     AccessControl._grant_role(ADMIN_ROLE, owner);
+    admin.write(owner);
 
     Account.initializer(public_key);
     renter_account.write(public_key);
     is_listed.write(0);
     is_rented.write(0);
+    rental_price.write(Uint256(0, 0));
     return ();
 }
 
@@ -70,8 +72,13 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 // by combining nft_amount and nft_list we can get our list of NFTs. A storage_var cant return a list directly
 // for i=0 to i=nft_amount : get NFTs
 @storage_var
+func admin() -> (address: felt) {
+}
+
+@storage_var
 func nft_list(id: felt) -> (res: (nft_address: felt, nft_id: felt)) {
 }
+
 @storage_var
 func nft_amount() -> (nft_len: felt) {
 }
@@ -112,11 +119,51 @@ func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_che
 }
 
 @view
+func getAdmin{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    admin_address : felt 
+) {
+    let (res: felt) = admin.read();
+    return (admin_address=res);
+}
+
+@view
 func getPublicKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
     public_key: felt
 ) {
     let (publicKey: felt) = Account.get_public_key();
     return (public_key=publicKey);
+}
+
+@view
+func getRenterPubKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    public_key: felt
+) {
+    let (publicKey: felt) = renter_account.read();
+    return (public_key=publicKey);
+}
+
+@view
+func isListed{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    value: felt
+) {
+    let (res: felt) = is_listed.read();
+    return (value=res);
+}
+
+@view
+func getPriceToPay{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    value: Uint256
+) {
+    let (res: Uint256) = rental_price.read();
+    return (value=res);
+}
+
+@view
+func isRented{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    value: felt
+) {
+    let (res: felt) = is_rented.read();
+    return (value=res);
 }
 
 @view
@@ -155,6 +202,14 @@ func setPublicKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     newPublicKey: felt
 ) {
     Account.set_public_key(newPublicKey);
+    return ();
+}
+
+@external
+func setWhitelistedToken{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    token_address: felt
+) {
+    whitelisted_token.write(token_address);
     return ();
 }
 
@@ -305,9 +360,9 @@ func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 
 @external
 func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    price: Uint256
+    new_price: Uint256
 ) {
-    uint256_check(price);
+    uint256_check(new_price);
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (listed: felt) = is_listed.read();
     let (rented: felt) = is_rented.read();
@@ -317,7 +372,7 @@ func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range
     with_attr error_message("Asset rented") {
         assert_not_equal(rented, 1);
     }
-    _setRentalPrice(price);
+    rental_price.write(new_price);
     is_listed.write(TRUE);
     return ();
 }
@@ -336,7 +391,7 @@ func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_
         assert_not_equal(rented, 1);
     }
     is_listed.write(FALSE);
-    _setRentalPrice(Uint256(0, 0));
+    rental_price.write(Uint256(0, 0));
     return ();
 }
 
@@ -395,16 +450,9 @@ func withdrawFunds{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_p
     // fetch balance
     let (balance: Uint256) = IERC20.balanceOf(contract_address=token_addr, account=this_address);
     // rugpull
-    IERC20.transferFrom(
-        contract_address=token_addr, sender=this_address, recipient=caller, amount=balance
+    IERC20.transfer(
+        contract_address=token_addr, recipient=caller, amount=balance
     );
-    return ();
-}
-
-func _setRentalPrice{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    new_price: Uint256
-) {
-    rental_price.write(new_price);
     return ();
 }
 

@@ -4,12 +4,19 @@
 
 from starkware.cairo.common.uint256 import Uint256, uint256_check
 
+from openzeppelin.account.library import Account, AccountCallArray, Call
+
+
 @event
 func TokenDeposit(nft_address: felt, nft_id: Uint256) {
 }
 
 @event
 func TokenWithdrawal(nft_address: felt, nft_id: Uint256) {
+}
+
+@storage_var
+func admin() -> (address: felt) {
 }
 
 @storage_var
@@ -44,12 +51,27 @@ func whitelisted_token() -> (token_address: felt) {
 }
 
 @contract_interface
-namespace IRental_factory {
+namespace IRental {
 
     func supportsInterface(interfaceId: felt) -> (success: felt) {
     }
 
     func getPublicKey() -> (public_key: felt) {
+    }
+
+    func getRenterPubKey() -> (public_key: felt) {
+    }
+
+    func getAdmin() -> (admin_address : felt){
+    }
+
+    func isListed() -> (value : felt){
+    }
+
+    func getPriceToPay() -> (value : Uint256){
+    }
+
+    func isRented() -> (value : felt){
     }
 
     func getWhitelistedToken() -> (token_address: felt) {
@@ -60,11 +82,14 @@ namespace IRental_factory {
 
     func setPublicKey(newPublicKey: felt) {
     }
-
+    
+    func setWhitelistedToken(token_address: felt) {
+    }
+    
     func __validate__(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
     }
     
-    func __validate_declare__(class_hash: felt) {
+    func __validate_declare__(cls_hash: felt) {
     }
 
     func __execute__(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) -> (response_len: felt, response: felt*) {
@@ -76,7 +101,7 @@ namespace IRental_factory {
     func withdrawNft(nft_id: Uint256, nft_address: felt) {
     }
     
-    func createTokenSetListing(price: Uint256) {
+    func createTokenSetListing(new_price: Uint256) {
     }
 
     func unlistTokenSet() {
