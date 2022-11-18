@@ -1,13 +1,11 @@
-["protostar.config"]
-protostar_version = "0.4.2"
-
-["protostar.project"]
-libs_path = "lib"
-
-["protostar.contracts"]
-main = [
-    "src/main.cairo",
-]
-
-["protostar.build"]
+[project]
+protostar-version = "0.7.0"
+lib-path = "lib"
 cairo-path = ["./lib/cairo_contracts/src"]
+
+[contracts]
+rental = ["src/libraries/rental.cairo"]
+factory = ["src/libraries/rental_factory.cairo"]
+nft = ["src/libraries/nft_contract.cairo"]
+token = ["src/libraries/token.cairo"]
+
