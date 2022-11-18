@@ -9,3 +9,6 @@ factory = ["src/libraries/rental_factory.cairo"]
 nft = ["src/libraries/nft_contract.cairo"]
 token = ["src/libraries/token.cairo"]
 
+["profile.devnet.protostar.deploy"]
+gateway-url="http://127.0.0.1:5050/"
+chain-id="1536727068981429685321"
