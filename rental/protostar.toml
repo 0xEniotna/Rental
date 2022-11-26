@@ -1,5 +1,5 @@
 [project]
-protostar-version = "0.7.0"
+protostar-version = "0.8.1"
 lib-path = "lib"
 cairo-path = ["./lib/cairo_contracts/src"]
 
@@ -8,4 +8,12 @@ rental = ["src/libraries/rental.cairo"]
 factory = ["src/libraries/rental_factory.cairo"]
 nft = ["src/libraries/nft_contract.cairo"]
 token = ["src/libraries/token.cairo"]
+
+[profile.devnet.project]
+gateway-url="http://127.0.0.1:5050/"
+chain-id="1536727068981429685321"
+
+[profile.testnet2.project]
+gateway-url="https://alpha4-2.starknet.io"
+chain-id=1536727068981429685321
 

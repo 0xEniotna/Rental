@@ -8,7 +8,7 @@ from starkware.starknet.common.syscalls import (
     get_tx_info,
     deploy,
 )
-from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin
+from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin, EcOpBuiltin
 from starkware.cairo.common.alloc import alloc
 from starkware.cairo.common.bool import FALSE
 
@@ -78,10 +78,18 @@ func owner{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() ->
 // Functions
 // /////////////////////////////////////////////////
 
+@external
+func setClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    _rental_class_hash: felt
+) {
+    rental_class_hash.write(value=_rental_class_hash);
+    return ();
+}
+
 // ACCESS CONTROL WILL BE MODIFIED, ANYONE SHOULD BE ABLE TO CREATE A PLAYLIST
 @external
 func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    admin_address: felt, public_key : felt
+    admin_address: felt, public_key : felt, token_addr : felt
 ) -> (contract_address : felt) {
     Ownable.assert_only_owner();
     let (current_salt) = salt.read();
@@ -89,8 +97,8 @@ func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_
     let (contract_address : felt) = deploy(
         class_hash=class_hash,
         contract_address_salt=current_salt,
-        constructor_calldata_size=2,
-        constructor_calldata=cast(new (admin_address, public_key), felt*),
+        constructor_calldata_size=3,
+        constructor_calldata=cast(new (admin_address, public_key, token_addr), felt*),
         deploy_from_zero=FALSE,
     );
     salt.write(value=current_salt + 1);

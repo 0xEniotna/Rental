@@ -74,6 +74,9 @@ namespace IRental {
     func isRented() -> (value : felt){
     }
 
+    func getNftAddress() -> (token_address: felt) {
+    }
+
     func getWhitelistedToken() -> (token_address: felt) {
     }
 
