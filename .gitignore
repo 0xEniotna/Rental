@@ -3,3 +3,4 @@ rental/build
 rental/.protostar_cache
 rental/.env
 addresses.txt
+rental/migrations/*/*.json
