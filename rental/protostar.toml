@@ -8,6 +8,7 @@ rental = ["src/libraries/rental.cairo"]
 factory = ["src/libraries/rental_factory.cairo"]
 nft = ["src/libraries/nft_contract.cairo"]
 token = ["src/libraries/token.cairo"]
+proxy = ["src/libraries/Proxy.cairo"]
 
 [profile.devnet.project]
 gateway-url="http://127.0.0.1:5050/"

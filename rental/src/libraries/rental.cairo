@@ -21,6 +21,8 @@ from openzeppelin.token.erc721.IERC721 import IERC721
 from openzeppelin.token.erc20.IERC20 import IERC20
 from openzeppelin.introspection.erc165.library import ERC165
 from openzeppelin.account.library import Account, AccountCallArray, Call, Account_public_key
+from openzeppelin.upgrades.library import Proxy
+
 // /////
 // Vars
 // /////
@@ -31,6 +33,7 @@ const RENTER_ROLE = DEFAULT_RENTER_ROLE;
 const APPROVE_SELECTOR = 949021990203918389843157787496164629863144228991510976554585288817234167820;
 const ETH_ADDRESS = 2087021424722619777119509474943472645767659996348769578120564519014510906823;
 
+const SEQUENCER_ADDRESS = 1997487415181885029773256152896365819837996792307295206244238286899607166571;
 // /////////////////////////////////////////////////
 // Events
 // /////////////////////////////////////////////////
@@ -47,10 +50,33 @@ func TokenWithdrawal(nft_address: felt, nft_id: Uint256) {
 // constructor / initializer
 // /////////////////////////////////////////////////
 
-@constructor
-func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    owner: felt, public_key: felt, token_address : felt
+// @constructor
+// func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+//     owner: felt, public_key: felt, token_address : felt
+// ) {
+//     ERC165.register_interface(IERC721_RECEIVER_ID);
+//     ERC165.register_interface(IACCESSCONTROL_ID);
+
+//     AccessControl.initializer();
+//     AccessControl._grant_role(ADMIN_ROLE, owner);
+//     admin.write(owner);
+
+//     Account.initializer(public_key);
+//     renter_account.write(public_key);
+//     is_listed.write(0);
+//     is_rented.write(0);
+//     whitelisted_token.write(token_address);
+//     rental_price.write(Uint256(0, 0));
+
+//     return ();
+// }
+
+@external
+func initializer{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    proxy_admin: felt, owner: felt, public_key: felt, token_address : felt
 ) {
+    Proxy.initializer(proxy_admin);
+
     ERC165.register_interface(IERC721_RECEIVER_ID);
     ERC165.register_interface(IACCESSCONTROL_ID);
 
@@ -219,22 +245,6 @@ func setWhitelistedToken{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_c
 
 // / ACCOUNT ///
 
-// func custom_is_valid_signature{
-//     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
-// }(_public_key: felt, hash: felt, signature_len: felt, signature: felt*) -> (is_valid: felt) {
-//     // This interface expects a signature pointer and length to make
-//     // no assumption about signature validation schemes.
-//     // But this implementation does, and it expects a (sig_r, sig_s) pair.
-//     let sig_r = signature[0];
-//     let sig_s = signature[1];
-
-//     verify_ecdsa_signature(
-//         message=hash, public_key=_public_key, signature_r=sig_r, signature_s=sig_s
-//     );
-
-//     return (is_valid=TRUE);
-// }
-
 func custom_is_valid_signature{
     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr, ec_op_ptr: EcOpBuiltin*
 }(hash: felt, signature_len: felt, signature: felt*) -> (is_valid: felt) {
@@ -280,79 +290,6 @@ func custom_is_valid_signature{
 //     data_len: felt
 // }
 
-// func _validate_internal{
-//     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr, ec_op_ptr: EcOpBuiltin*
-// }(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
-//     alloc_locals;
-
-//     if (call_array_len == 0) {
-//         let (tx_info) = get_tx_info();
-//         let (res : felt) = custom_is_valid_signature(
-//             tx_info.transaction_hash, tx_info.signature_len, tx_info.signature
-//         );
-//         with_attr error_message("Signature not valid") {
-//             assert_not_zero(res);
-//         }
-//         tempvar syscall_ptr: felt* = syscall_ptr;
-//         tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//         tempvar range_check_ptr = range_check_ptr;
-//         tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//         tempvar ec_op_ptr = ec_op_ptr;
-//         return ();
-//     }
-//     if (call_array[0].selector == APPROVE_SELECTOR) {
-//         let (local nft_addr: felt) = nft_address.read();
-//         let (local token_addr: felt) = whitelisted_token.read();
-
-//         if (call_array[0].to == nft_addr){
-        
-//             // let (local nft_addr: felt) = nft_address.read();
-//             // with_attr error_message("Can only approve for NFT contract") {
-//             //     assert call_array[0].to = nft_addr;
-//             // }
-//             _validate_internal(
-//                 call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
-//             );
-//             tempvar syscall_ptr: felt* = syscall_ptr;
-//             tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//             tempvar range_check_ptr = range_check_ptr;
-//             tempvar ec_op_ptr = ec_op_ptr;
-//             tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//         } else {
-//             if (call_array[0].to == token_addr){
-//                 _validate_internal(
-//                     call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
-//                 );
-//                 tempvar syscall_ptr: felt* = syscall_ptr;
-//                 tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//                 tempvar range_check_ptr = range_check_ptr;
-//                 tempvar ec_op_ptr = ec_op_ptr;
-//                 tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//             } else {
-//                 // BREAK
-//                 assert 0 = 1;
-                
-//                 tempvar syscall_ptr: felt* = syscall_ptr;
-//                 tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//                 tempvar range_check_ptr = range_check_ptr;
-//                 tempvar ec_op_ptr = ec_op_ptr;
-//                 tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//             }
-//         }
-
-//     } else {
-//         // BREAK
-//         assert 0 = 1;
-        
-//         tempvar syscall_ptr: felt* = syscall_ptr;
-//         tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//         tempvar range_check_ptr = range_check_ptr;
-//         tempvar ec_op_ptr = ec_op_ptr;
-//         tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//     }
-//     return ();
-// }
-
 // ATTENTION, RENTER CAN WITHDRAW ETH. SHOULD BE MODIFIED LATTER
 func _validate_internal{
     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr, ec_op_ptr: EcOpBuiltin*
@@ -375,16 +312,7 @@ func _validate_internal{
         return ();
     }
     if (call_array[0].to == ETH_ADDRESS) {
-        _validate_internal(
-            call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
-        );
-        tempvar syscall_ptr: felt* = syscall_ptr;
-        tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-        tempvar range_check_ptr = range_check_ptr;
-        tempvar ec_op_ptr = ec_op_ptr;
-        tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-    } else {
-        if (call_array[0].selector == APPROVE_SELECTOR) {
+        if (calldata[0] == SEQUENCER_ADDRESS){
             _validate_internal(
                 call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
             );
@@ -395,9 +323,43 @@ func _validate_internal{
             tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
         } else {
             // BREAK
-            with_attr error_message("Transaction not accepted, should be eth or approve") {
+            with_attr error_message("Transaction not accepted, ETH receiver isn't sequencer") {
                 assert 0 = 1;
             }
+            tempvar syscall_ptr: felt* = syscall_ptr;
+            tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+            tempvar range_check_ptr = range_check_ptr;
+            tempvar ec_op_ptr = ec_op_ptr;
+            tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+        }
+        
+    } else {
+        let (nft_addr : felt) = nft_address.read();
+        if (call_array[0].to == nft_addr) {
+            if (call_array[0].selector == APPROVE_SELECTOR) {
+                _validate_internal(
+                    call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
+                );
+                tempvar syscall_ptr: felt* = syscall_ptr;
+                tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+                tempvar range_check_ptr = range_check_ptr;
+                tempvar ec_op_ptr = ec_op_ptr;
+                tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+            } else {
+                // BREAK
+                with_attr error_message("Transaction not accepted, can't interact with nft contract") {
+                    assert 0 = 1;
+                }
+                tempvar syscall_ptr: felt* = syscall_ptr;
+                tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+                tempvar range_check_ptr = range_check_ptr;
+                tempvar ec_op_ptr = ec_op_ptr;
+                tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+            }
+        } else {
+            _validate_internal(
+                call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
+            );
             tempvar syscall_ptr: felt* = syscall_ptr;
             tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
             tempvar range_check_ptr = range_check_ptr;
@@ -585,4 +547,23 @@ func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_chec
     // we might want to configure this
 
     return (selector=IERC721_RECEIVER_ID);
+}
+
+
+// Proxy upgrade
+
+@external
+func upgradeImplementation{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_implementation: felt
+) {
+    Proxy.assert_only_admin();
+    Proxy._set_implementation_hash(new_implementation);
+    return ();
+}
+
+@external
+func setProxyAdmin{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(address: felt) {
+    Proxy.assert_only_admin();
+    Proxy._set_admin(address);
+    return ();
 }

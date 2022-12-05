@@ -21,7 +21,7 @@ from openzeppelin.account.library import Account, AccountCallArray
 // /////////////////////////////////////////////////
 
 @event
-func rental_contract_deployed(contract_address: felt, admin_address: felt) {
+func rental_contract_deployed(contract_address: felt) {
 }
 
 // /////////////////////////////////////////////////
@@ -52,6 +52,12 @@ func rental_class_hash() -> (value: felt) {
 func salt() -> (value: felt) {
 }
 
+struct Calldata {
+    proxy_admin: felt,
+    owner: felt,
+    public_key: felt,
+    token_address: felt,
+}
 // /////////////////////////////////////////////////
 // Getters
 // /////////////////////////////////////////////////
@@ -87,22 +93,44 @@ func setClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
 }
 
 // ACCESS CONTROL WILL BE MODIFIED, ANYONE SHOULD BE ABLE TO CREATE A PLAYLIST
+// @external
+// func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+//     admin_address: felt, public_key : felt, token_addr : felt
+// ) -> (contract_address : felt) {
+//     Ownable.assert_only_owner();
+//     let (current_salt) = salt.read();
+//     let (class_hash) = rental_class_hash.read();
+//     let (contract_address : felt) = deploy(
+//         class_hash=class_hash,
+//         contract_address_salt=current_salt,
+//         constructor_calldata_size=3,
+//         constructor_calldata=cast(new (admin_address, public_key, token_addr), felt*),
+//         deploy_from_zero=FALSE,
+//     );
+//     salt.write(value=current_salt + 1);
+//     rental_contract_deployed.emit(contract_address=contract_address, admin_address=admin_address);
+//     return (contract_address=contract_address);
+// }
+
 @external
 func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    admin_address: felt, public_key : felt, token_addr : felt
+    proxy_hash: felt, selector : felt, constructor_data_len : felt, constructor_data : felt*
 ) -> (contract_address : felt) {
+    alloc_locals;
     Ownable.assert_only_owner();
     let (current_salt) = salt.read();
     let (class_hash) = rental_class_hash.read();
+
     let (contract_address : felt) = deploy(
-        class_hash=class_hash,
+        class_hash=proxy_hash,
         contract_address_salt=current_salt,
-        constructor_calldata_size=3,
-        constructor_calldata=cast(new (admin_address, public_key, token_addr), felt*),
+        constructor_calldata_size=4,
+        constructor_calldata=cast(new (class_hash, selector, constructor_data_len, constructor_data), felt*),
         deploy_from_zero=FALSE,
     );
+
     salt.write(value=current_salt + 1);
 
-    rental_contract_deployed.emit(contract_address=contract_address, admin_address=admin_address);
+    rental_contract_deployed.emit(contract_address=contract_address);
     return (contract_address=contract_address);
 }
