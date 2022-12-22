@@ -1,5 +1,5 @@
 [project]
-protostar-version = "0.8.1"
+protostar-version = "0.9.1"
 lib-path = "lib"
 cairo-path = ["./lib/cairo_contracts/src"]
 
@@ -16,5 +16,4 @@ chain-id="1536727068981429685321"
 
 [profile.testnet2.project]
 gateway-url="https://alpha4-2.starknet.io"
-chain-id=1536727068981429685321
-
+chain-id=393402129659245999442226
