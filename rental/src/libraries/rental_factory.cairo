@@ -16,6 +16,9 @@ from openzeppelin.access.ownable.library import Ownable
 from openzeppelin.introspection.erc165.library import ERC165
 from openzeppelin.account.library import Account, AccountCallArray
 
+from openzeppelin.upgrades.library import Proxy
+
+
 // /////////////////////////////////////////////////
 // Events
 // /////////////////////////////////////////////////
@@ -28,10 +31,12 @@ func rental_contract_deployed(contract_address: felt) {
 // constructor / initializer
 // /////////////////////////////////////////////////
 
-@constructor
-func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    _owner: felt, _rental_class_hash: felt
+@external
+func initializer{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    proxy_admin: felt, _owner: felt, _rental_class_hash: felt
 ) {
+    Proxy.initializer(proxy_admin);
+
     Ownable.initializer(_owner);
 
     rental_class_hash.write(value=_rental_class_hash);
@@ -44,8 +49,14 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 // storage & structs
 // /////////////////////////////////////////////////
 
+const INITIALIZER_SELECTOR = 1295919550572838631247819983596733806859788957403169325509326258146877103642;
+
 @storage_var
 func rental_class_hash() -> (value: felt) {
+}
+
+@storage_var
+func proxy_class_hash() -> (value: felt) {
 }
 
 @storage_var
@@ -77,6 +88,13 @@ func getClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
 }
 
 @view
+func getProxyHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    value: felt
+) {
+    return proxy_class_hash.read();
+}
+
+@view
 func owner{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (owner: felt) {
     return Ownable.owner();
 }
@@ -92,45 +110,48 @@ func setClassHash{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     return ();
 }
 
-// ACCESS CONTROL WILL BE MODIFIED, ANYONE SHOULD BE ABLE TO CREATE A PLAYLIST
-// @external
-// func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-//     admin_address: felt, public_key : felt, token_addr : felt
-// ) -> (contract_address : felt) {
-//     Ownable.assert_only_owner();
-//     let (current_salt) = salt.read();
-//     let (class_hash) = rental_class_hash.read();
-//     let (contract_address : felt) = deploy(
-//         class_hash=class_hash,
-//         contract_address_salt=current_salt,
-//         constructor_calldata_size=3,
-//         constructor_calldata=cast(new (admin_address, public_key, token_addr), felt*),
-//         deploy_from_zero=FALSE,
-//     );
-//     salt.write(value=current_salt + 1);
-//     rental_contract_deployed.emit(contract_address=contract_address, admin_address=admin_address);
-//     return (contract_address=contract_address);
-// }
+// ACCESS CONTROL WILL BE MODIFIED
 
 @external
 func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    proxy_hash: felt, selector : felt, constructor_data_len : felt, constructor_data : felt*
+    owner: felt, public_key: felt, token_address : felt
 ) -> (contract_address : felt) {
     alloc_locals;
     Ownable.assert_only_owner();
-    let (current_salt) = salt.read();
-    let (class_hash) = rental_class_hash.read();
+    let (current_salt : felt) = salt.read();
+    let (rental_hash : felt) = rental_class_hash.read();
 
+    // Rental constructor data is (this is proxy calldata)
+    // owner: felt, public_key: felt, token_address : felt
     let (contract_address : felt) = deploy(
-        class_hash=proxy_hash,
+        class_hash=rental_hash,
         contract_address_salt=current_salt,
-        constructor_calldata_size=4,
-        constructor_calldata=cast(new (class_hash, selector, constructor_data_len, constructor_data), felt*),
+        constructor_calldata_size=3,
+        constructor_calldata=cast(new (owner,public_key,token_address), felt*),
         deploy_from_zero=FALSE,
     );
-
+    
     salt.write(value=current_salt + 1);
 
     rental_contract_deployed.emit(contract_address=contract_address);
     return (contract_address=contract_address);
+}
+
+
+// Proxy upgrade
+
+@external
+func upgradeImplementation{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_implementation: felt
+) {
+    Proxy.assert_only_admin();
+    Proxy._set_implementation_hash(new_implementation);
+    return ();
+}
+
+@external
+func setProxyAdmin{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(address: felt) {
+    Proxy.assert_only_admin();
+    Proxy._set_admin(address);
+    return ();
 }
