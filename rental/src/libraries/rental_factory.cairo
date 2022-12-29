@@ -12,8 +12,9 @@ from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin,
 from starkware.cairo.common.alloc import alloc
 from starkware.cairo.common.bool import FALSE, TRUE
 from starkware.cairo.common.math import assert_nn
+from starkware.cairo.common.uint256 import Uint256, uint256_check, uint256_eq, uint256_lt
 
-
+from openzeppelin.security.safemath.library import SafeUint256
 from openzeppelin.access.ownable.library import Ownable
 from openzeppelin.introspection.erc165.library import ERC165
 from openzeppelin.account.library import Account, AccountCallArray
@@ -90,11 +91,11 @@ struct Calldata {
 
 func rentals_of_owner_by_index{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
         owner: felt, index: Uint256
-    ) -> (rental_address: felt) {
+    ) -> (address: felt) {
         alloc_locals;
         uint256_check(index);
         // Ensures index argument is less than owner's balance
-        let (len: Uint256) = user_balance(owner);
+        let (len: Uint256) = user_balance.read(owner);
         let (is_lt) = uint256_lt(index, len);
         with_attr error_message("Factory: owner index out of bounds") {
             assert is_lt = TRUE;
@@ -104,16 +105,18 @@ func rentals_of_owner_by_index{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, r
 }
 
 func get_all_rentals_owned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    owner: felt, index: felt, balance: felt, rentals: felt*
+    owner: felt, index: Uint256, balance: Uint256, rentals: felt*
 ) -> () {
-    if (index == balance) {
+    let (res: felt) = uint256_eq(index, balance);
+    if (res == 1) {
         return ();
     }
     let (rental_address: felt) = rentals_of_owner_by_index(
-        owner=owner, index=Uint256(low=index, high=0)
+        owner=owner, index=index
     );
-    assert rentals[index] = rental_address;
-    return get_all_pxls_owned(owner, index + 1, balance, rentals);
+    assert rentals[index.low] = rental_address;
+    let (next_index : Uint256) = SafeUint256.add(index, Uint256(1, 0));
+    return get_all_rentals_owned(owner, next_index, balance, rentals);
 }
 
 @view
@@ -123,7 +126,7 @@ func rentalsOwned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     alloc_locals;
     let (rentals: felt*) = alloc();
     let (balance: Uint256) = user_balance.read(owner);
-    get_all_rentals_owned(owner, 0, balance.low, rentals);
+    get_all_rentals_owned(owner, Uint256(0,0), balance, rentals);
     return (rentals_len=balance.low, rentals=rentals);
 }
 
@@ -185,8 +188,10 @@ func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_
         constructor_calldata=cast(new (owner,public_key,token_address), felt*),
         deploy_from_zero=FALSE,
     );
-    
-    user_balance.write(value=current_salt + 1);
+    // Increase receiver balance
+    let (old_balance) = user_balance.read(caller);
+    let (new_balance: Uint256) = SafeUint256.add(old_balance, Uint256(1, 0));
+    user_balance.write(caller, new_balance);
     _add_token_to_owner_enumeration(caller, contract_address);
     
     salt.write(value=current_salt + 1);
@@ -231,13 +236,14 @@ func _add_token_to_owner_enumeration{
 func _remove_token_from_owner_enumeration{
     pedersen_ptr: HashBuiltin*, syscall_ptr: felt*, range_check_ptr
 }(from_: felt, address: felt) {
+    alloc_locals;
+
     with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
             assert_nn(address);
     }
-    with_attr error_message("Factory: to: supplied adddress is negative/wrong format") {
-            assert_nn(to);
+    with_attr error_message("Factory: from_: supplied adddress is negative/wrong format") {
+            assert_nn(from_);
     }
-    alloc_locals;
     let (last_token_index: Uint256) = user_balance.read(from_);
     // the index starts at zero therefore the user's last token index is their balance minus one
     let (last_token_index) = SafeUint256.sub_le(last_token_index, Uint256(1, 0));
@@ -246,7 +252,7 @@ func _remove_token_from_owner_enumeration{
     // If index is last, we can just set the return values to zero
     let (is_equal) = uint256_eq(token_index, last_token_index);
     if (is_equal == TRUE) {
-        rentals_owned_index.write(address, 0);
+        rentals_owned_index.write(address, Uint256(0, 0));
         rentals_owned.write(from_, last_token_index, 0);
         return ();
     }
