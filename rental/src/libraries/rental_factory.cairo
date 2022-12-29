@@ -8,6 +8,7 @@ from starkware.starknet.common.syscalls import (
     get_tx_info,
     deploy,
 )
+from starkware.starknet.core.os.contract_address.contract_address import get_contract_address as gca
 from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin, EcOpBuiltin
 from starkware.cairo.common.alloc import alloc
 from starkware.cairo.common.bool import FALSE, TRUE
@@ -131,6 +132,14 @@ func rentalsOwned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
 }
 
 @view
+func getUserBalance{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(owner: felt) -> (
+    value: Uint256
+) {
+    let (balance: Uint256) = user_balance.read(owner);
+    return (value=balance);
+}
+
+@view
 func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     interfaceId: felt
 ) -> (success: felt) {
@@ -175,27 +184,29 @@ func deployRentalContract{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_
 ) -> (contract_address : felt) {
     alloc_locals;
     Ownable.assert_only_owner();
+    let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
     let (current_salt : felt) = salt.read();
     let (rental_hash : felt) = rental_class_hash.read();
 
+    // gca is get_contract_address which is a function that computes a contract address from the parameters.
+    // it is different from the other get_contract_address which is a syscall that retrieve the actual contrcat address.
+    let (contract_address : felt) = gca{hash_ptr=pedersen_ptr}(current_salt, rental_hash, 3, cast(new (owner,public_key,token_address), felt*), this_address);
     // Rental constructor data is (this is proxy calldata)
     // owner: felt, public_key: felt, token_address : felt
-    let (contract_address : felt) = deploy(
+    let (_addr : felt) = deploy(
         class_hash=rental_hash,
         contract_address_salt=current_salt,
         constructor_calldata_size=3,
         constructor_calldata=cast(new (owner,public_key,token_address), felt*),
         deploy_from_zero=FALSE,
     );
+    
     // Increase receiver balance
-    let (old_balance) = user_balance.read(caller);
-    let (new_balance: Uint256) = SafeUint256.add(old_balance, Uint256(1, 0));
-    user_balance.write(caller, new_balance);
     _add_token_to_owner_enumeration(caller, contract_address);
     
-    salt.write(value=current_salt + 1);
     rental_contract_deployed.emit(contract_address=contract_address);
+    salt.write(value=current_salt + 1);
     return (contract_address=contract_address);
 }
 
@@ -221,15 +232,12 @@ func setProxyAdmin{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_p
 func _add_token_to_owner_enumeration{
     pedersen_ptr: HashBuiltin*, syscall_ptr: felt*, range_check_ptr
 }(to: felt, address: felt) {
-    with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
-            assert_nn(address);
-    }
-    with_attr error_message("Factory: to: supplied adddress is negative/wrong format") {
-            assert_nn(to);
-    }
+
     let (length: Uint256) = user_balance.read(to);
     rentals_owned.write(to, length, address);
     rentals_owned_index.write(address, length);
+    let (new_balance: Uint256) = SafeUint256.add(length, Uint256(1, 0));
+    user_balance.write(to, new_balance);
     return ();
 }
 
@@ -238,12 +246,6 @@ func _remove_token_from_owner_enumeration{
 }(from_: felt, address: felt) {
     alloc_locals;
 
-    with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
-            assert_nn(address);
-    }
-    with_attr error_message("Factory: from_: supplied adddress is negative/wrong format") {
-            assert_nn(from_);
-    }
     let (last_token_index: Uint256) = user_balance.read(from_);
     // the index starts at zero therefore the user's last token index is their balance minus one
     let (last_token_index) = SafeUint256.sub_le(last_token_index, Uint256(1, 0));
