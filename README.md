@@ -20,3 +20,9 @@ Every transactions from this escrow account are blocked (apart from `approve`).
 
 # ATM INTERACTIONS WITH EVERY SMART-CONTRACTS ARE POSSIBLE. WE NEED TO BLOCK THAT.
 # AS WE CAN APPROVE, SOMEONE COULD INTERACT WITH A CONTRACT THAT PERFORMS TRANSFERFROM. WE NEED TO EITHER RESTRICT APPROVAL TO ADMIN OR BLOCK TRANSACTIONS
+
+Class hash for contract "rental": 0x402637b07042318060876540a157e8b9adf02c6503c9d0cdb2a65487051a06e
+Class hash for contract "factory": 0x164daccc1c8bd4c336d441f9f3e44980194bd0049213604b92d54309c61c744
+Class hash for contract "nft": 0x5e83c4aa4cf8ae94441a7ac4fd4c624888f5eee2357cc5da0392f1e20479362
+Class hash for contract "token": 0x69b31c76b74bf0512bb98161ca781fc441c9aace2603185a2f80a4d351eb6bb
+Class hash for contract "proxy": 0xeafb0413e759430def79539db681f8a4eb98cf4196fe457077d694c6aeeb82

@@ -75,22 +75,29 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 // storage & structs
 // /////////////////////////////////////////////////
 
-// by combining nft_amount and nft_list we can get our list of NFTs. A storage_var cant return a list directly
-// for i=0 to i=nft_amount : get NFTs
 @storage_var
 func admin() -> (address: felt) {
 }
 
+// Amount of rentals contract owned by address
 // @storage_var
-// func nft_list(id: felt) -> (res: (nft_address: felt, nft_id: felt)) {
+// func balance_of(address: felt) -> (amount: Uint256) {
 // }
 
 // @storage_var
-// func nft_amount() -> (nft_len: felt) {
+// func nft_owned(owner: felt, index: Uint256) -> (address: felt) {
+// }
+
+// @storage_var
+// func nft_owned_index(address: felt) -> (index: Uint256) {
 // }
 
 @storage_var
 func nft_address() -> (nft_address: felt) {
+}
+
+@storage_var
+func nft_id() -> (nft_id: Uint256) {
 }
 
 @storage_var
@@ -116,6 +123,45 @@ func whitelisted_token() -> (token_address: felt) {
 // /////////////////////////////////////////////////
 // Getters
 // /////////////////////////////////////////////////
+
+// func nft_of_owner_by_index{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+//         owner: felt, index: Uint256
+//     ) -> (nft_address: felt) {
+//         alloc_locals;
+//         uint256_check(index);
+//         // Ensures index argument is less than owner's balance
+//         let (len: Uint256) = balance_of.read(owner);
+//         let (is_lt) = uint256_lt(index, len);
+//         with_attr error_message("Factory: owner index out of bounds") {
+//             assert is_lt = TRUE;
+//         }
+
+//         return nft_owned.read(owner, index);
+// }
+
+// func get_all_nft_owned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+//     owner: felt, index: felt, balance: felt, nfts: felt*
+// ) -> () {
+//     if (index == balance) {
+//         return ();
+//     }
+//     let (nft_address: felt) = nft_of_owner_by_index(
+//         owner=owner, index=Uint256(low=index, high=0)
+//     );
+//     assert nfts[index] = nft_address;
+//     return get_all_nft_owned(owner, index + 1, balance, nfts);
+// }
+
+// @view
+// func nftsOwned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(owner: felt) -> (
+//     nfts_len: felt, nfts: felt*
+// ) {
+//     alloc_locals;
+//     let (nfts: felt*) = alloc();
+//     let (balance: Uint256) = balance_of.read(owner);
+//     get_all_nft_owned(owner, 0, balance.low, nfts);
+//     return (rentals_len=balance.low, nfts=nfts);
+// }
 
 @view
 func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
@@ -181,11 +227,13 @@ func getWhitelistedToken{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_c
 }
 
 @view
-func getNftAddress{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
-    token_address: felt
+func getDepositedNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    token_address: felt, nft_id: Uint256
 ) {
     let (token_addr: felt) = nft_address.read();
-    return (token_address=token_addr);
+    let (id: Uint256) = nft_id.read();
+    
+    return (token_address=token_addr, nft_id=id);
 }
 
 @view
@@ -549,3 +597,52 @@ func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_chec
     return (selector=IERC721_RECEIVER_ID);
 }
 
+
+
+// FUTURE FUNCTIONS, WE WILL BE ABLE TO DEPOSIT SEVERAL NFTs
+// WE THREFORE NEED TO KEEP TRACE OF EVERY DEPOSITS
+
+// func _add_token_to_owner_enumeration{
+//     pedersen_ptr: HashBuiltin*, syscall_ptr: felt*, range_check_ptr
+// }(to: felt, address: felt) {
+//     with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
+//             assert_nn(address);
+//     }
+//     with_attr error_message("Factory: to: supplied adddress is negative/wrong format") {
+//             assert_nn(to);
+//     }
+//     let (length: Uint256) = balance_of.read(to);
+//     nft_owned.write(to, length, address);
+//     nft_owned_index.write(address, length);
+//     return ();
+// }
+
+// func _remove_token_from_owner_enumeration{
+//     pedersen_ptr: HashBuiltin*, syscall_ptr: felt*, range_check_ptr
+// }(from_: felt, address: felt) {
+//     with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
+//             assert_nn(address);
+//     }
+//     with_attr error_message("Factory: to: supplied adddress is negative/wrong format") {
+//             assert_nn(to);
+//     }
+//     alloc_locals;
+//     let (last_token_index: Uint256) = balance_of.read(from_);
+//     // the index starts at zero therefore the user's last token index is their balance minus one
+//     let (last_token_index) = SafeUint256.sub_le(last_token_index, Uint256(1, 0));
+//     let (token_index: Uint256) = nft_owned_index.read(address);
+
+//     // If index is last, we can just set the return values to zero
+//     let (is_equal) = uint256_eq(token_index, last_token_index);
+//     if (is_equal == TRUE) {
+//         nft_owned_index.write(address, 0);
+//         nft_owned.write(from_, last_token_index, 0);
+//         return ();
+//     }
+
+//     // If index is not last, reposition owner's last token to the removed token's index
+//     let (last_address: felt) = rentals_owned.read(from_, last_token_index);
+//     nft_owned.write(from_, token_index, last_address);
+//     nft_owned_index.write(last_address, token_index);
+//     return ();
+// }
