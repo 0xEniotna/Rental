@@ -2,16 +2,16 @@
 
 %lang starknet
 
-from starkware.starknet.common.syscalls import get_caller_address, get_contract_address, get_tx_info
+from starkware.starknet.common.syscalls import get_caller_address, get_contract_address, get_tx_info, get_block_timestamp
 from starkware.cairo.common.uint256 import Uint256, uint256_check
 from starkware.cairo.common.signature import verify_ecdsa_signature, check_ecdsa_signature
 from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin, EcOpBuiltin
 from starkware.cairo.common.math import assert_not_equal, assert_not_zero
+from starkware.cairo.common.math_cmp import is_le
 from starkware.cairo.common.bool import TRUE, FALSE
 
 from utils.library import (
     DEFAULT_ADMIN_ROLE,
-    DEFAULT_RENTER_ROLE,
     IERC721_RECEIVER_ID,
     IACCESSCONTROL_ID,
 )
@@ -28,11 +28,13 @@ from openzeppelin.upgrades.library import Proxy
 // /////
 
 const ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
-const RENTER_ROLE = DEFAULT_RENTER_ROLE;
 
 const APPROVE_SELECTOR = 949021990203918389843157787496164629863144228991510976554585288817234167820;
 const ETH_ADDRESS = 2087021424722619777119509474943472645767659996348769578120564519014510906823;
 const SEQUENCER_ADDRESS = 1997487415181885029773256152896365819837996792307295206244238286899607166571;
+
+const BLOCK_TIME_BUFFER = 10 * 60;
+
 
 // /////////////////////////////////////////////////
 // Events
@@ -44,6 +46,14 @@ func TokenDeposit(nft_address: felt, nft_id: Uint256) {
 
 @event
 func TokenWithdrawal(nft_address: felt, nft_id: Uint256) {
+}
+
+@event
+func TokenListed(nft_address: felt, nft_id: Uint256, price: Uint256) {
+}
+
+@event
+func TokenRented(nft_address: felt, nft_id: Uint256, renter : felt) {
 }
 
 // /////////////////////////////////////////////////
@@ -79,19 +89,6 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 func admin() -> (address: felt) {
 }
 
-// Amount of rentals contract owned by address
-// @storage_var
-// func balance_of(address: felt) -> (amount: Uint256) {
-// }
-
-// @storage_var
-// func nft_owned(owner: felt, index: Uint256) -> (address: felt) {
-// }
-
-// @storage_var
-// func nft_owned_index(address: felt) -> (index: Uint256) {
-// }
-
 @storage_var
 func nft_address() -> (nft_address: felt) {
 }
@@ -120,48 +117,20 @@ func renter_account() -> (public_key: felt) {
 func whitelisted_token() -> (token_address: felt) {
 }
 
+// This saves the start timestamp 
+@storage_var
+func rental_timestamp() -> (timestamp: felt) {
+}
+
+// This saves the duration  
+@storage_var
+func rental_duration() -> (timestamp: felt) {
+}
+
+
 // /////////////////////////////////////////////////
 // Getters
 // /////////////////////////////////////////////////
-
-// func nft_of_owner_by_index{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-//         owner: felt, index: Uint256
-//     ) -> (nft_address: felt) {
-//         alloc_locals;
-//         uint256_check(index);
-//         // Ensures index argument is less than owner's balance
-//         let (len: Uint256) = balance_of.read(owner);
-//         let (is_lt) = uint256_lt(index, len);
-//         with_attr error_message("Factory: owner index out of bounds") {
-//             assert is_lt = TRUE;
-//         }
-
-//         return nft_owned.read(owner, index);
-// }
-
-// func get_all_nft_owned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-//     owner: felt, index: felt, balance: felt, nfts: felt*
-// ) -> () {
-//     if (index == balance) {
-//         return ();
-//     }
-//     let (nft_address: felt) = nft_of_owner_by_index(
-//         owner=owner, index=Uint256(low=index, high=0)
-//     );
-//     assert nfts[index] = nft_address;
-//     return get_all_nft_owned(owner, index + 1, balance, nfts);
-// }
-
-// @view
-// func nftsOwned{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(owner: felt) -> (
-//     nfts_len: felt, nfts: felt*
-// ) {
-//     alloc_locals;
-//     let (nfts: felt*) = alloc();
-//     let (balance: Uint256) = balance_of.read(owner);
-//     get_all_nft_owned(owner, 0, balance.low, nfts);
-//     return (rentals_len=balance.low, nfts=nfts);
-// }
 
 @view
 func supportsInterface{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
@@ -192,6 +161,14 @@ func getRenterPubKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check
 ) {
     let (publicKey: felt) = renter_account.read();
     return (public_key=publicKey);
+}
+
+@view
+func getRentalTimestamp{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    timestamp : felt 
+) {
+    let (res: felt) = rental_timestamp.read();
+    return (timestamp=res);
 }
 
 @view
@@ -459,9 +436,7 @@ func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
-    // IERC721.approve(
-    //     contract_address=_nft_address, spender=this_address, tokenId=nft_id
-    // );
+
     IERC721.transferFrom(
         contract_address=_nft_address, from_=caller, to=this_address, tokenId=nft_id
     );
@@ -477,12 +452,18 @@ func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 ) {
     uint256_check(nft_id);
     AccessControl.assert_only_role(ADMIN_ROLE);
+    let (listed: felt) = is_listed.read();
+    let (rented: felt) = is_rented.read();
+    with_attr error_message("Asset is listed") {
+        assert_not_equal(listed, 1);
+    }
+    with_attr error_message("Asset is rented") {
+        assert_not_equal(rented, 1);
+    }
+    
     let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
-    let (token_owner: felt) = IERC721.ownerOf(contract_address=nft_address, tokenId=nft_id);
-    with_attr error_message("ERC721: caller is not token owner") {
-        assert this_address = token_owner;
-    }
+
     IERC721.transferFrom(
         contract_address=nft_address, from_=this_address, to=caller, tokenId=nft_id
     );
@@ -491,8 +472,8 @@ func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 }
 
 @external
-func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    new_price: Uint256
+func listRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_price: Uint256, duration : felt
 ) {
     uint256_check(new_price);
     AccessControl.assert_only_role(ADMIN_ROLE);
@@ -505,12 +486,16 @@ func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range
         assert_not_equal(rented, 1);
     }
     rental_price.write(new_price);
+    rental_duration.write(duration);
     is_listed.write(TRUE);
+    let (nft_addr: felt) = nft_address.read();
+    let (id: Uint256) = nft_id.read();
+    TokenListed.emit(nft_address=nft_addr, nft_id=id, price=new_price);
     return ();
 }
 
 @external
-func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
+func unlistRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (listed: felt) = is_listed.read();
     let (rented: felt) = is_rented.read();
@@ -523,13 +508,13 @@ func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_
         assert_not_equal(rented, 1);
     }
     is_listed.write(FALSE);
+    rental_duration.write(0);
     rental_price.write(Uint256(0, 0));
     return ();
 }
 
-// prompt pubkey a la mano, not good but it is for a test purpose
 @external
-func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+func rent{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     public_key: felt
 ) {
     let (listed: felt) = is_listed.read();
@@ -546,20 +531,30 @@ func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     let (caller: felt) = get_caller_address();
     let (price_to_pay: Uint256) = rental_price.read();
     let (token_addr: felt) = whitelisted_token.read();
-
+    
     IERC20.transferFrom(
         contract_address=token_addr, sender=caller, recipient=this_address, amount=price_to_pay
     );
+    let (block_timestamp) = get_block_timestamp();
+    rental_timestamp.write(block_timestamp);
     is_listed.write(FALSE);
     is_rented.write(TRUE);
     renter_account.write(public_key);
+    let (nft_addr: felt) = nft_address.read();
+    let (id: Uint256) = nft_id.read();
+    TokenRented.emit(nft_address=nft_addr, nft_id=id, renter=caller);
     return ();
 }
 
 @external
 func cancelRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
     AccessControl.assert_only_role(ADMIN_ROLE);
-
+    with_attr error_message("Rental not over") {
+        // check that it is not rented
+        let ( is_ended : felt) = is_rental_ended();
+        assert is_ended = 1;
+        
+    }
     let (rented: felt) = is_rented.read();
 
     with_attr error_message("Asset not rented") {
@@ -570,6 +565,7 @@ func cancelRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     is_listed.write(FALSE);
     is_rented.write(FALSE);
     renter_account.write(this_pubKey);
+    rental_timestamp.write(0);
     return ();
 }
 
@@ -597,52 +593,16 @@ func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_chec
     return (selector=IERC721_RECEIVER_ID);
 }
 
-
-
-// FUTURE FUNCTIONS, WE WILL BE ABLE TO DEPOSIT SEVERAL NFTs
-// WE THREFORE NEED TO KEEP TRACE OF EVERY DEPOSITS
-
-// func _add_token_to_owner_enumeration{
-//     pedersen_ptr: HashBuiltin*, syscall_ptr: felt*, range_check_ptr
-// }(to: felt, address: felt) {
-//     with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
-//             assert_nn(address);
-//     }
-//     with_attr error_message("Factory: to: supplied adddress is negative/wrong format") {
-//             assert_nn(to);
-//     }
-//     let (length: Uint256) = balance_of.read(to);
-//     nft_owned.write(to, length, address);
-//     nft_owned_index.write(address, length);
-//     return ();
-// }
-
-// func _remove_token_from_owner_enumeration{
-//     pedersen_ptr: HashBuiltin*, syscall_ptr: felt*, range_check_ptr
-// }(from_: felt, address: felt) {
-//     with_attr error_message("Factory: address: supplied adddress is negative/wrong format") {
-//             assert_nn(address);
-//     }
-//     with_attr error_message("Factory: to: supplied adddress is negative/wrong format") {
-//             assert_nn(to);
-//     }
-//     alloc_locals;
-//     let (last_token_index: Uint256) = balance_of.read(from_);
-//     // the index starts at zero therefore the user's last token index is their balance minus one
-//     let (last_token_index) = SafeUint256.sub_le(last_token_index, Uint256(1, 0));
-//     let (token_index: Uint256) = nft_owned_index.read(address);
-
-//     // If index is last, we can just set the return values to zero
-//     let (is_equal) = uint256_eq(token_index, last_token_index);
-//     if (is_equal == TRUE) {
-//         nft_owned_index.write(address, 0);
-//         nft_owned.write(from_, last_token_index, 0);
-//         return ();
-//     }
-
-//     // If index is not last, reposition owner's last token to the removed token's index
-//     let (last_address: felt) = rentals_owned.read(from_, last_token_index);
-//     nft_owned.write(from_, token_index, last_address);
-//     nft_owned_index.write(last_address, token_index);
-//     return ();
-// }
+func is_rental_ended{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    is_ended: felt
+) {
+    alloc_locals;
+    let (block_timestamp : felt) = get_block_timestamp();
+    let (actual_timestamp : felt) = rental_timestamp.read();
+    let actual_duration = block_timestamp - actual_timestamp;
+    let (duration : felt) = rental_duration.read();
+    let RENTAL_DURATION_WITH_BUFFER = duration + BLOCK_TIME_BUFFER;
+    // if duration >= RENTAL_DURATION_WITH_BUFFER 
+    let is_ended = is_le(RENTAL_DURATION_WITH_BUFFER, actual_duration);
+    return (is_ended=is_ended);
+}
