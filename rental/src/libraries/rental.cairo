@@ -59,11 +59,11 @@ func TokenRented(nft_address: felt, nft_id: Uint256, renter : felt) {
 // /////////////////////////////////////////////////
 // constructor / initializer
 // /////////////////////////////////////////////////
-
-@constructor
-func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    owner: felt, public_key: felt, token_address : felt
+@external
+func initializer{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    proxy_admin: felt, owner: felt, public_key: felt, token_address : felt
 ) {
+    Proxy.initializer(proxy_admin);
 
     ERC165.register_interface(IERC721_RECEIVER_ID);
     ERC165.register_interface(IACCESSCONTROL_ID);
@@ -584,15 +584,6 @@ func withdrawFunds{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_p
     return ();
 }
 
-@external
-func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    operator: felt, from_: felt, tokenId: Uint256, data_len: felt, data: felt*
-) -> (selector: felt) {
-    // we might want to configure this
-
-    return (selector=IERC721_RECEIVER_ID);
-}
-
 func is_rental_ended{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
     is_ended: felt
 ) {
@@ -605,4 +596,32 @@ func is_rental_ended{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check
     // if duration >= RENTAL_DURATION_WITH_BUFFER 
     let is_ended = is_le(RENTAL_DURATION_WITH_BUFFER, actual_duration);
     return (is_ended=is_ended);
+}
+
+
+@external
+func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    operator: felt, from_: felt, tokenId: Uint256, data_len: felt, data: felt*
+) -> (selector: felt) {
+    // we might want to configure this
+
+    return (selector=IERC721_RECEIVER_ID);
+}
+
+// Proxy upgrade
+
+@external
+func upgradeImplementation{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_implementation: felt
+) {
+    Proxy.assert_only_admin();
+    Proxy._set_implementation_hash(new_implementation);
+    return ();
+}
+
+@external
+func setProxyAdmin{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(address: felt) {
+    Proxy.assert_only_admin();
+    Proxy._set_admin(address);
+    return ();
 }
