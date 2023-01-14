@@ -441,6 +441,8 @@ func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}
         contract_address=_nft_address, from_=caller, to=this_address, tokenId=nft_id
     );
     nft_address.write(_nft_address);
+    nft_id.write(nft_id);
+    
     TokenDeposit.emit(nft_address=_nft_address, nft_id=nft_id);
     return ();
 }
