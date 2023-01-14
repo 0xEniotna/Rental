@@ -26,3 +26,4 @@ Class hash for contract "factory": 0x37e06deae023a329f2694bb6058c463d01317a0cf7c
 Class hash for contract "nft": 0x5e83c4aa4cf8ae94441a7ac4fd4c624888f5eee2357cc5da0392f1e20479362
 Class hash for contract "token": 0x69b31c76b74bf0512bb98161ca781fc441c9aace2603185a2f80a4d351eb6bb
 Class hash for contract "proxy": 0xeafb0413e759430def79539db681f8a4eb98cf4196fe457077d694c6aeeb82
+
