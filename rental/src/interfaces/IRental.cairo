@@ -3,9 +3,9 @@
 %lang starknet
 
 from starkware.cairo.common.uint256 import Uint256, uint256_check
-
 from openzeppelin.account.library import Account, AccountCallArray, Call
 
+///// EVENTS /////
 
 @event
 func TokenDeposit(nft_address: felt, nft_id: Uint256) {
@@ -15,19 +15,26 @@ func TokenDeposit(nft_address: felt, nft_id: Uint256) {
 func TokenWithdrawal(nft_address: felt, nft_id: Uint256) {
 }
 
+@event
+func TokenListed(nft_address: felt, nft_id: Uint256, price: Uint256) {
+}
+
+@event
+func TokenRented(nft_address: felt, nft_id: Uint256, renter : felt) {
+}
+
+///// STORAGE /////
+
 @storage_var
 func admin() -> (address: felt) {
 }
 
 @storage_var
-func nft_list(id: felt) -> (res: (nft_address: felt, nft_id: felt)) {
-}
-@storage_var
-func nft_amount() -> (nft_len: felt) {
+func nft_address() -> (nft_address: felt) {
 }
 
 @storage_var
-func nft_address() -> (nft_address: felt) {
+func nft_id() -> (nft_id: Uint256) {
 }
 
 @storage_var
@@ -48,6 +55,16 @@ func renter_account() -> (public_key: felt) {
 
 @storage_var
 func whitelisted_token() -> (token_address: felt) {
+}
+
+// This saves the start timestamp 
+@storage_var
+func rental_timestamp() -> (timestamp: felt) {
+}
+
+// This saves the duration  
+@storage_var
+func rental_duration() -> (timestamp: felt) {
 }
 
 @contract_interface
@@ -104,13 +121,13 @@ namespace IRental {
     func withdrawNft(nft_id: Uint256, nft_address: felt) {
     }
     
-    func createTokenSetListing(new_price: Uint256) {
+    func listRental(new_price: Uint256, duration : felt) {
     }
 
-    func unlistTokenSet() {
+    func unlistRental() {
     }
 
-    func rentTokenSet(public_key: felt) {
+    func rent(public_key: felt) {
     }
 
     func cancelRental() {

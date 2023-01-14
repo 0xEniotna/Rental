@@ -2,16 +2,16 @@
 
 %lang starknet
 
-from starkware.starknet.common.syscalls import get_caller_address, get_contract_address, get_tx_info
+from starkware.starknet.common.syscalls import get_caller_address, get_contract_address, get_tx_info, get_block_timestamp
 from starkware.cairo.common.uint256 import Uint256, uint256_check
 from starkware.cairo.common.signature import verify_ecdsa_signature, check_ecdsa_signature
 from starkware.cairo.common.cairo_builtins import HashBuiltin, SignatureBuiltin, BitwiseBuiltin, EcOpBuiltin
 from starkware.cairo.common.math import assert_not_equal, assert_not_zero
+from starkware.cairo.common.math_cmp import is_le
 from starkware.cairo.common.bool import TRUE, FALSE
 
 from utils.library import (
     DEFAULT_ADMIN_ROLE,
-    DEFAULT_RENTER_ROLE,
     IERC721_RECEIVER_ID,
     IACCESSCONTROL_ID,
 )
@@ -21,15 +21,20 @@ from openzeppelin.token.erc721.IERC721 import IERC721
 from openzeppelin.token.erc20.IERC20 import IERC20
 from openzeppelin.introspection.erc165.library import ERC165
 from openzeppelin.account.library import Account, AccountCallArray, Call, Account_public_key
+from openzeppelin.upgrades.library import Proxy
+
 // /////
 // Vars
 // /////
 
 const ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
-const RENTER_ROLE = DEFAULT_RENTER_ROLE;
 
 const APPROVE_SELECTOR = 949021990203918389843157787496164629863144228991510976554585288817234167820;
 const ETH_ADDRESS = 2087021424722619777119509474943472645767659996348769578120564519014510906823;
+const SEQUENCER_ADDRESS = 1997487415181885029773256152896365819837996792307295206244238286899607166571;
+
+const BLOCK_TIME_BUFFER = 10 * 60;
+
 
 // /////////////////////////////////////////////////
 // Events
@@ -43,14 +48,23 @@ func TokenDeposit(nft_address: felt, nft_id: Uint256) {
 func TokenWithdrawal(nft_address: felt, nft_id: Uint256) {
 }
 
+@event
+func TokenListed(nft_address: felt, nft_id: Uint256, price: Uint256) {
+}
+
+@event
+func TokenRented(nft_address: felt, nft_id: Uint256, renter : felt) {
+}
+
 // /////////////////////////////////////////////////
 // constructor / initializer
 // /////////////////////////////////////////////////
-
-@constructor
-func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    owner: felt, public_key: felt, token_address : felt
+@external
+func initializer{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    proxy_admin: felt, owner: felt, public_key: felt, token_address : felt
 ) {
+    Proxy.initializer(proxy_admin);
+
     ERC165.register_interface(IERC721_RECEIVER_ID);
     ERC165.register_interface(IACCESSCONTROL_ID);
 
@@ -67,27 +81,20 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 
     return ();
 }
-
 // /////////////////////////////////////////////////
 // storage & structs
 // /////////////////////////////////////////////////
 
-// by combining nft_amount and nft_list we can get our list of NFTs. A storage_var cant return a list directly
-// for i=0 to i=nft_amount : get NFTs
 @storage_var
 func admin() -> (address: felt) {
 }
 
 @storage_var
-func nft_list(id: felt) -> (res: (nft_address: felt, nft_id: felt)) {
-}
-
-@storage_var
-func nft_amount() -> (nft_len: felt) {
-}
-
-@storage_var
 func nft_address() -> (nft_address: felt) {
+}
+
+@storage_var
+func nft_id() -> (nft_id: Uint256) {
 }
 
 @storage_var
@@ -109,6 +116,17 @@ func renter_account() -> (public_key: felt) {
 @storage_var
 func whitelisted_token() -> (token_address: felt) {
 }
+
+// This saves the start timestamp 
+@storage_var
+func rental_timestamp() -> (timestamp: felt) {
+}
+
+// This saves the duration  
+@storage_var
+func rental_duration() -> (timestamp: felt) {
+}
+
 
 // /////////////////////////////////////////////////
 // Getters
@@ -146,6 +164,14 @@ func getRenterPubKey{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check
 }
 
 @view
+func getRentalTimestamp{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    timestamp : felt 
+) {
+    let (res: felt) = rental_timestamp.read();
+    return (timestamp=res);
+}
+
+@view
 func isListed{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
     value: felt
 ) {
@@ -178,11 +204,13 @@ func getWhitelistedToken{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_c
 }
 
 @view
-func getNftAddress{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
-    token_address: felt
+func getDepositedNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    token_address: felt, nft_id: Uint256
 ) {
     let (token_addr: felt) = nft_address.read();
-    return (token_address=token_addr);
+    let (id: Uint256) = nft_id.read();
+    
+    return (token_address=token_addr, nft_id=id);
 }
 
 @view
@@ -218,22 +246,6 @@ func setWhitelistedToken{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_c
 // /////////////////////////////////////////////////
 
 // / ACCOUNT ///
-
-// func custom_is_valid_signature{
-//     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr
-// }(_public_key: felt, hash: felt, signature_len: felt, signature: felt*) -> (is_valid: felt) {
-//     // This interface expects a signature pointer and length to make
-//     // no assumption about signature validation schemes.
-//     // But this implementation does, and it expects a (sig_r, sig_s) pair.
-//     let sig_r = signature[0];
-//     let sig_s = signature[1];
-
-//     verify_ecdsa_signature(
-//         message=hash, public_key=_public_key, signature_r=sig_r, signature_s=sig_s
-//     );
-
-//     return (is_valid=TRUE);
-// }
 
 func custom_is_valid_signature{
     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr, ec_op_ptr: EcOpBuiltin*
@@ -280,80 +292,17 @@ func custom_is_valid_signature{
 //     data_len: felt
 // }
 
-// func _validate_internal{
-//     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr, ec_op_ptr: EcOpBuiltin*
-// }(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
-//     alloc_locals;
-
-//     if (call_array_len == 0) {
-//         let (tx_info) = get_tx_info();
-//         let (res : felt) = custom_is_valid_signature(
-//             tx_info.transaction_hash, tx_info.signature_len, tx_info.signature
-//         );
-//         with_attr error_message("Signature not valid") {
-//             assert_not_zero(res);
-//         }
-//         tempvar syscall_ptr: felt* = syscall_ptr;
-//         tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//         tempvar range_check_ptr = range_check_ptr;
-//         tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//         tempvar ec_op_ptr = ec_op_ptr;
-//         return ();
-//     }
-//     if (call_array[0].selector == APPROVE_SELECTOR) {
-//         let (local nft_addr: felt) = nft_address.read();
-//         let (local token_addr: felt) = whitelisted_token.read();
-
-//         if (call_array[0].to == nft_addr){
-        
-//             // let (local nft_addr: felt) = nft_address.read();
-//             // with_attr error_message("Can only approve for NFT contract") {
-//             //     assert call_array[0].to = nft_addr;
-//             // }
-//             _validate_internal(
-//                 call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
-//             );
-//             tempvar syscall_ptr: felt* = syscall_ptr;
-//             tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//             tempvar range_check_ptr = range_check_ptr;
-//             tempvar ec_op_ptr = ec_op_ptr;
-//             tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//         } else {
-//             if (call_array[0].to == token_addr){
-//                 _validate_internal(
-//                     call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
-//                 );
-//                 tempvar syscall_ptr: felt* = syscall_ptr;
-//                 tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//                 tempvar range_check_ptr = range_check_ptr;
-//                 tempvar ec_op_ptr = ec_op_ptr;
-//                 tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//             } else {
-//                 // BREAK
-//                 assert 0 = 1;
-                
-//                 tempvar syscall_ptr: felt* = syscall_ptr;
-//                 tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//                 tempvar range_check_ptr = range_check_ptr;
-//                 tempvar ec_op_ptr = ec_op_ptr;
-//                 tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//             }
-//         }
-
-//     } else {
-//         // BREAK
-//         assert 0 = 1;
-        
-//         tempvar syscall_ptr: felt* = syscall_ptr;
-//         tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-//         tempvar range_check_ptr = range_check_ptr;
-//         tempvar ec_op_ptr = ec_op_ptr;
-//         tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-//     }
-//     return ();
-// }
-
 // ATTENTION, RENTER CAN WITHDRAW ETH. SHOULD BE MODIFIED LATTER
+// THIS FUNCTION IS TOOOOOOOO COMPLEX
+// IMPORVMENTS NEED TO BE MADE. SUPER IMPORTANT
+
+// We go through call_array, typical cairo recursion
+// If we are interacting with ETH, ONLY ACCEPT THE FEES, ELSE BREAK
+// IF we are interacting with NFT contract, THEN
+//          IF The selector is Approve AND the spender is admin THEN OK (so that no other contract can rug the admin)
+            // ELSE BREAK
+// ELSE VALIDATE
+
 func _validate_internal{
     syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, ecdsa_ptr: SignatureBuiltin*, range_check_ptr, ec_op_ptr: EcOpBuiltin*
 }(call_array_len: felt, call_array: AccountCallArray*, calldata_len: felt, calldata: felt*) {
@@ -375,16 +324,7 @@ func _validate_internal{
         return ();
     }
     if (call_array[0].to == ETH_ADDRESS) {
-        _validate_internal(
-            call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
-        );
-        tempvar syscall_ptr: felt* = syscall_ptr;
-        tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
-        tempvar range_check_ptr = range_check_ptr;
-        tempvar ec_op_ptr = ec_op_ptr;
-        tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
-    } else {
-        if (call_array[0].selector == APPROVE_SELECTOR) {
+        if (calldata[0] == SEQUENCER_ADDRESS){
             _validate_internal(
                 call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
             );
@@ -395,9 +335,56 @@ func _validate_internal{
             tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
         } else {
             // BREAK
-            with_attr error_message("Transaction not accepted, should be eth or approve") {
+            with_attr error_message("Transaction not accepted, ETH receiver isn't sequencer") {
                 assert 0 = 1;
             }
+            tempvar syscall_ptr: felt* = syscall_ptr;
+            tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+            tempvar range_check_ptr = range_check_ptr;
+            tempvar ec_op_ptr = ec_op_ptr;
+            tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+        }
+        
+    } else {
+        let (nft_addr : felt) = nft_address.read();
+        if (call_array[0].to == nft_addr) {
+            if (call_array[0].selector == APPROVE_SELECTOR) {
+                let (admin_addr : felt) = admin.read();
+                if (calldata[0] == admin_addr) {
+                    _validate_internal(
+                        call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
+                    );
+                    tempvar syscall_ptr: felt* = syscall_ptr;
+                    tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+                    tempvar range_check_ptr = range_check_ptr;
+                    tempvar ec_op_ptr = ec_op_ptr;
+                    tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+                } else {
+                    // BREAK
+                    with_attr error_message("Transaction not accepted, spender is not admin") {
+                        assert 0 = 1;
+                    }
+                    tempvar syscall_ptr: felt* = syscall_ptr;
+                    tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+                    tempvar range_check_ptr = range_check_ptr;
+                    tempvar ec_op_ptr = ec_op_ptr;
+                    tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+                }
+            } else {
+                // BREAK
+                with_attr error_message("Transaction not accepted, can't interact with nft contract") {
+                    assert 0 = 1;
+                }
+                tempvar syscall_ptr: felt* = syscall_ptr;
+                tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
+                tempvar range_check_ptr = range_check_ptr;
+                tempvar ec_op_ptr = ec_op_ptr;
+                tempvar ecdsa_ptr: SignatureBuiltin* = ecdsa_ptr;
+            }
+        } else {
+            _validate_internal(
+                call_array_len - 1, call_array + AccountCallArray.SIZE, calldata_len, calldata
+            );
             tempvar syscall_ptr: felt* = syscall_ptr;
             tempvar pedersen_ptr: HashBuiltin* = pedersen_ptr;
             tempvar range_check_ptr = range_check_ptr;
@@ -449,13 +436,13 @@ func depositNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
-    // IERC721.approve(
-    //     contract_address=_nft_address, spender=this_address, tokenId=nft_id
-    // );
+
     IERC721.transferFrom(
         contract_address=_nft_address, from_=caller, to=this_address, tokenId=nft_id
     );
     nft_address.write(_nft_address);
+    nft_id.write(nft_id);
+    
     TokenDeposit.emit(nft_address=_nft_address, nft_id=nft_id);
     return ();
 }
@@ -467,12 +454,18 @@ func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 ) {
     uint256_check(nft_id);
     AccessControl.assert_only_role(ADMIN_ROLE);
+    let (listed: felt) = is_listed.read();
+    let (rented: felt) = is_rented.read();
+    with_attr error_message("Asset is listed") {
+        assert_not_equal(listed, 1);
+    }
+    with_attr error_message("Asset is rented") {
+        assert_not_equal(rented, 1);
+    }
+    
     let (this_address) = get_contract_address();
     let (caller: felt) = get_caller_address();
-    let (token_owner: felt) = IERC721.ownerOf(contract_address=nft_address, tokenId=nft_id);
-    with_attr error_message("ERC721: caller is not token owner") {
-        assert this_address = token_owner;
-    }
+
     IERC721.transferFrom(
         contract_address=nft_address, from_=this_address, to=caller, tokenId=nft_id
     );
@@ -481,8 +474,8 @@ func withdrawNft{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
 }
 
 @external
-func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    new_price: Uint256
+func listRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_price: Uint256, duration : felt
 ) {
     uint256_check(new_price);
     AccessControl.assert_only_role(ADMIN_ROLE);
@@ -495,12 +488,16 @@ func createTokenSetListing{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range
         assert_not_equal(rented, 1);
     }
     rental_price.write(new_price);
+    rental_duration.write(duration);
     is_listed.write(TRUE);
+    let (nft_addr: felt) = nft_address.read();
+    let (id: Uint256) = nft_id.read();
+    TokenListed.emit(nft_address=nft_addr, nft_id=id, price=new_price);
     return ();
 }
 
 @external
-func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
+func unlistRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
     AccessControl.assert_only_role(ADMIN_ROLE);
     let (listed: felt) = is_listed.read();
     let (rented: felt) = is_rented.read();
@@ -513,13 +510,13 @@ func unlistTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_
         assert_not_equal(rented, 1);
     }
     is_listed.write(FALSE);
+    rental_duration.write(0);
     rental_price.write(Uint256(0, 0));
     return ();
 }
 
-// prompt pubkey a la mano, not good but it is for a test purpose
 @external
-func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+func rent{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     public_key: felt
 ) {
     let (listed: felt) = is_listed.read();
@@ -536,20 +533,30 @@ func rentTokenSet{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     let (caller: felt) = get_caller_address();
     let (price_to_pay: Uint256) = rental_price.read();
     let (token_addr: felt) = whitelisted_token.read();
-
+    
     IERC20.transferFrom(
         contract_address=token_addr, sender=caller, recipient=this_address, amount=price_to_pay
     );
+    let (block_timestamp) = get_block_timestamp();
+    rental_timestamp.write(block_timestamp);
     is_listed.write(FALSE);
     is_rented.write(TRUE);
     renter_account.write(public_key);
+    let (nft_addr: felt) = nft_address.read();
+    let (id: Uint256) = nft_id.read();
+    TokenRented.emit(nft_address=nft_addr, nft_id=id, renter=caller);
     return ();
 }
 
 @external
 func cancelRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() {
     AccessControl.assert_only_role(ADMIN_ROLE);
-
+    with_attr error_message("Rental not over") {
+        // check that it is not rented
+        let ( is_ended : felt) = is_rental_ended();
+        assert is_ended = 1;
+        
+    }
     let (rented: felt) = is_rented.read();
 
     with_attr error_message("Asset not rented") {
@@ -560,6 +567,7 @@ func cancelRental{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_pt
     is_listed.write(FALSE);
     is_rented.write(FALSE);
     renter_account.write(this_pubKey);
+    rental_timestamp.write(0);
     return ();
 }
 
@@ -578,6 +586,21 @@ func withdrawFunds{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_p
     return ();
 }
 
+func is_rental_ended{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}() -> (
+    is_ended: felt
+) {
+    alloc_locals;
+    let (block_timestamp : felt) = get_block_timestamp();
+    let (actual_timestamp : felt) = rental_timestamp.read();
+    let actual_duration = block_timestamp - actual_timestamp;
+    let (duration : felt) = rental_duration.read();
+    let RENTAL_DURATION_WITH_BUFFER = duration + BLOCK_TIME_BUFFER;
+    // if duration >= RENTAL_DURATION_WITH_BUFFER 
+    let is_ended = is_le(RENTAL_DURATION_WITH_BUFFER, actual_duration);
+    return (is_ended=is_ended);
+}
+
+
 @external
 func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     operator: felt, from_: felt, tokenId: Uint256, data_len: felt, data: felt*
@@ -585,4 +608,22 @@ func onERC721Received{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_chec
     // we might want to configure this
 
     return (selector=IERC721_RECEIVER_ID);
+}
+
+// Proxy upgrade
+
+@external
+func upgradeImplementation{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    new_implementation: felt
+) {
+    Proxy.assert_only_admin();
+    Proxy._set_implementation_hash(new_implementation);
+    return ();
+}
+
+@external
+func setProxyAdmin{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(address: felt) {
+    Proxy.assert_only_admin();
+    Proxy._set_admin(address);
+    return ();
 }
